@@ -1,71 +1,71 @@
-# SlotBook — застосунок бронювання слотів на Flutter
+# SlotBook — Flutter Slot-Booking App
 
-Клієнтський Flutter-застосунок для запису до фахівців салону, розроблений у форматі лайвкодинг-спринту з фокусом на надійність бізнес-логіки, обробку мережевих збоїв, захист від гонок даних (race conditions) та спостережуваність через Firebase Crashlytics.
+A client-side Flutter appointment booking app built during a live-coding sprint, focused on resilient business logic, transient network fault handling, race-condition protection, and observability via Firebase Crashlytics.
 
 ---
 
-## Стек та ключові пакети
+## Tech Stack
 
 - **Flutter / Dart** (`sdk: ^3.11.3`)
 - **State management:** `flutter_bloc` (`BookingCubit`, `BookingState`)
-- **Навігація:** `go_router` (`StatefulShellRoute.indexedStack` із 3 гілками)
-- **Моніторинг і краш-репортинг:** `firebase_core`, `firebase_crashlytics` (`AppCrashMonitor`)
-- **Статичний аналіз:** `very_good_analysis`
+- **Navigation:** `go_router` (`StatefulShellRoute.indexedStack` with 3 branches)
+- **Monitoring & crash reporting:** `firebase_core`, `firebase_crashlytics` (`AppCrashMonitor`)
+- **Static analysis:** `very_good_analysis`
 
 ---
 
-## Архітектура проєкту
+## Project Architecture
 
 ```text
 lib/
-├── api/            # SlotBookApi (мок-бекенд з ApiScenario.normal / incident, 503, 409, 422, pending hold)
-├── data/           # SlotBookRepository, SlotBookMapper, типізовані винятки SlotBookException
-├── logic/          # Чиста Dart-логіка: SlotGenerator, ClientNameValidator
+├── api/            # SlotBookApi (mock backend with ApiScenario.normal / incident, 503, 409, 422, pending holds)
+├── data/           # SlotBookRepository, SlotBookMapper, typed SlotBookException hierarchy
+├── logic/          # Pure Dart business logic: SlotGenerator, ClientNameValidator
 ├── models/         # Specialist, Booking (active / pending / cancelled), TimeRange, TimeSlot
 ├── services/       # InMemoryBookingStorageService, AppErrorLoggerService, AppCrashMonitor
 ├── state/          # BookingCubit, BookingState
-└── ui/             # Екрани (Home, Booking/Slots, Settings), BookingSheet, MemoryDebugSheet, GoRouter
+└── ui/             # Screens (Home, Booking/Slots, Settings), BookingSheet, MemoryDebugSheet, GoRouter
 ```
 
 ---
 
-## Пророблена робота
+## Work Completed
 
-### 1. Стійкість до нестабільного API та мережевих помилок
-- Реалізовано тихий повторний запит (silent retry) при тимчасових помилках `503 Service Unavailable` в [`ApiSlotBookRepository`](lib/data/slotbook_repository.dart), без ретраю клієнтських помилок (`409 Conflict`, `422 Validation`).
-- Додано мапінг різнотипних та брудних даних API у [`SlotBookMapper`](lib/data/slotbook_mapper.dart): підтримка `slotMinutes` як `int` і `String`, дедуплікація записів за `id`, конвертація UTC → local, обробка зміни до `'00:00'` як кінця доби (`+1 день`).
+### 1. Resilience to Unstable APIs & Inconsistent Payloads
+- Implemented silent retries for transient `503 Service Unavailable` responses in [`ApiSlotBookRepository`](lib/data/slotbook_repository.dart), while immediately surfacing non-retryable client errors (`409 Conflict`, `422 Validation`).
+- Added defensive payload normalization in [`SlotBookMapper`](lib/data/slotbook_mapper.dart): handling mixed `slotMinutes` types (`int` and `String`), deduplicating bookings by `id`, converting UTC timestamps to local time, and treating `'00:00'` shift ends as end-of-day (`+1 day`).
 
-### 2. Захист від станів гонки (Race Conditions) та `pending`-холдів
-- Впроваджено механізм тимчасового резервування слота (`holdSlot` / `releaseHold` зі статусом `pending` та TTL `2 хв` у [`SlotBookApi`](lib/api/slotbook_api.dart)):
-  - при відкритті [`BookingSheet`](lib/ui/widgets/booking_sheet.dart) слот миттєво резервується на сервері через `acquireHold`;
-  - якщо форму закрили без підтвердження — холд звільняється через `releaseActiveHold`;
-  - при підтвердженні `holdId` атомарно конвертується в `active`-бронювання разом із `clientName`.
-- Захищено [`BookingCubit.loadSlots`](lib/state/booking_cubit.dart) лічильником `_slotsRequestId`, щоб повільна відповідь від попереднього фахівця/дня не затирала актуальний стан при швидкому перемиканні.
+### 2. Race-Condition Protection & `pending` Slot Holds
+- Added temporary slot reservation (`holdSlot` / `releaseHold` with `pending` status and a `2`-minute TTL in [`SlotBookApi`](lib/api/slotbook_api.dart)):
+  - opening [`BookingSheet`](lib/ui/widgets/booking_sheet.dart) immediately reserves the selected slot via `acquireHold`;
+  - dismissing the sheet without confirming automatically releases the hold via `releaseActiveHold`;
+  - confirming converts `holdId` into an `active` booking with `clientName`.
+- Guarded [`BookingCubit.loadSlots`](lib/state/booking_cubit.dart) with a `_slotsRequestId` sequence counter so slow responses from previously selected days or specialists cannot overwrite newer selections.
 
-### 3. Локальне збереження, валідація та логування
-- Реалізовано [`InMemoryBookingStorageService`](lib/services/booking_storage_service.dart) для збереження записів із `clientName` та синхронізації з актуальним станом серверних `pending`-холдів.
-- Створено [`ClientNameValidator`](lib/logic/client_name_validator.dart): перевірка на порожнє значення, обмеження довжини (до `40` символів) і дозволені Unicode-літери, пробіли, дефіс та апостроф.
-- Налаштовано [`AppErrorLoggerService`](lib/services/error_logger_service.dart) для накопичення non-fatal помилок і breadcrumbs у памʼяті.
+### 3. Local Storage, Input Validation & Error Logging
+- Built [`InMemoryBookingStorageService`](lib/services/booking_storage_service.dart) to persist bookings (including `clientName`) and keep local state synchronized with server-side `pending` holds.
+- Implemented [`ClientNameValidator`](lib/logic/client_name_validator.dart) enforcing non-empty input, max length (`40` characters), and valid Unicode letters, spaces, hyphens, and apostrophes.
+- Added [`AppErrorLoggerService`](lib/services/error_logger_service.dart) to retain non-fatal error records and chronological breadcrumbs in memory.
 
-### 4. Інтеграція Firebase Crashlytics (`AppCrashMonitor`)
-- Ініціалізовано `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)` та глобальні перехоплювачі `FlutterError.onError` і `PlatformDispatcher.instance.onError` у [`main.dart`](lib/main.dart).
-- Обгорнуто ключові шари застосунку функціями [`AppCrashMonitor`](lib/services/app_crash_monitor.dart):
-  - **Custom keys:** `scenario`, `current_screen`, `selected_day`, `selected_specialist_id`, `selected_specialist_name`, `specialist_slot_minutes`, `is_day_off`, `slots_count`, `available_slots_count`, `active_hold_id`, `last_api_operation`, `last_api_status`, `last_client_name`, `last_booking_id` тощо;
-  - **Breadcrumbs (`log`):** навігація, вибір фахівця/дня, завантаження слотів, відкриття/скасування `BookingSheet`, конфлікти та валідація;
-  - **User identifier (`setUserIdentifier`):** `'guest'` за замовчуванням та імʼя клієнта після запису;
-  - **Non-fatal / fatal errors (`recordError`)** та **Тестовий краш (`testCrash`)** у розділі «Діагностика» на екрані налаштувань.
+### 4. Firebase Crashlytics Integration (`AppCrashMonitor`)
+- Initialized `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)` and wired global fatal handlers (`FlutterError.onError` and `PlatformDispatcher.instance.onError`) in [`main.dart`](lib/main.dart).
+- Connected all core layers to [`AppCrashMonitor`](lib/services/app_crash_monitor.dart):
+  - **Custom keys:** `scenario`, `current_screen`, `selected_day`, `selected_specialist_id`, `selected_specialist_name`, `specialist_slot_minutes`, `is_day_off`, `slots_count`, `available_slots_count`, `active_hold_id`, `last_api_operation`, `last_api_status`, `last_client_name`, `last_booking_id`, and more;
+  - **Breadcrumbs (`log`):** screen navigation, specialist/day selection, slot calculation, opening/cancelling `BookingSheet`, hold conflicts, validation failures, and scenario toggles;
+  - **User identifier (`setUserIdentifier`):** `'guest'` at startup and updated with the client name upon booking confirmation;
+  - **Non-fatal / fatal reporting (`recordError`)** and a **Test Crash (`testCrash`)** action under Diagnostics in Settings.
 
-### 5. Інструменти діагностики та тестове покриття
-- Додано [`MemoryDebugSheet`](lib/ui/widgets/memory_debug_sheet.dart) для читання внутрішньої памʼяті в рантаймі: поточні слоти, збережені клієнти в БД, останні помилки та живий список Crashlytics-ключів.
-- У [`SettingsScreen`](lib/ui/screens/settings_screen.dart) винесено перемикач `ApiScenario.incident` / `ApiScenario.normal` для ручного відтворення інцидент-кейсів (лікарняний Олени серед тижня, вечірня зміна Макса `18:00–00:00` через північ).
-- Написано та перевірено **21 тест** у `test/`:
-  - [`slot_generator_test.dart`](test/slot_generator_test.dart) — 8 unit-тестів для найризиковіших едж-кейсів розрахунку слотів (вихідний день, обрізаний кінець зміни, перерви при `includeBooked: true`, оф-грід і мультислотові бронювання, `cancelled`, минулі слоти, зміна `18:00–00:00` + крос-північний запис, активний та прострочений `pending`-холд).
-  - [`slots_screen_test.dart`](test/slots_screen_test.dart) — widget-тест [`SlotsScreen`](lib/ui/screens/slots_screen.dart) із фейковим репозиторієм (retry після `503`, вихідний день, відкриття шторки з `holdSlot`, валідація імені, успішний запис).
-  - [`slotbook_repository_test.dart`](test/slotbook_repository_test.dart), [`client_name_validator_test.dart`](test/client_name_validator_test.dart), [`widget_test.dart`](test/widget_test.dart) — перевірка ретраїв, локальної БД, логера, валідатора та навігації.
+### 5. Diagnostics & Test Coverage
+- Added [`MemoryDebugSheet`](lib/ui/widgets/memory_debug_sheet.dart) to inspect runtime memory: generated slots, saved client bookings, recent logged errors, and live Crashlytics custom keys.
+- Added an `ApiScenario.incident` / `ApiScenario.normal` toggle in [`SettingsScreen`](lib/ui/screens/settings_screen.dart) to manually reproduce incident edge cases (weekday sick leave for the default specialist and an evening `18:00–00:00` shift crossing midnight).
+- Added and verified **21 tests** under `test/`:
+  - [`slot_generator_test.dart`](test/slot_generator_test.dart) — 8 unit tests covering high-risk slot calculation edge cases (day off, partial trailing remainder slots, breaks with `includeBooked: true`, off-grid & multi-slot bookings, `cancelled` bookings, past/boundary slots, `18:00–00:00` shift + cross-midnight booking, and active vs. expired `pending` holds).
+  - [`slots_screen_test.dart`](test/slots_screen_test.dart) — widget test for [`SlotsScreen`](lib/ui/screens/slots_screen.dart) with a fake repository (retry after `503`, day-off state, `BookingSheet` hold acquisition, client name validation, and successful booking).
+  - [`slotbook_repository_test.dart`](test/slotbook_repository_test.dart), [`client_name_validator_test.dart`](test/client_name_validator_test.dart), and [`widget_test.dart`](test/widget_test.dart) covering retries, local DB persistence, error logging, name validation, and tab navigation.
 
 ---
 
-## Запуск і перевірка
+## Getting Started & Verification
 
 ```bash
 flutter pub get
@@ -73,13 +73,13 @@ flutter analyze
 flutter test
 ```
 
-Останній прогін `flutter test`: **21/21 тестів пройдено успішно**.
+Latest `flutter test` run: **21/21 tests passed**.
 
 ---
 
-## Висновки та що варто покращити далі
+## Conclusions & Next Steps
 
-1. **Ідемпотентність на реальному бекенді:** автоматичний retry безпечний для GET-запитів, але для `holdSlot` і `createBooking` у продакшені потрібен `Idempotency-Key`, щоб повторний запит після таймауту не створював дублів.
-2. **Раннє закриття шторки під час `acquireHold`:** якщо закрити `BookingSheet`, поки `holdSlot` ще виконується в мережі, холд може залишитись активним до завершення `2 хв` TTL — варто скасовувати/звільняти холд за фактом завершення `Future`, якщо sheet вже `disposed`.
-3. **Таймер життя холда та DST:** у формі варто показувати відлік до `expiresAt`, а при обчисленні слотів — враховувати дні переходу на літній/зимовий час замість фіксованого `dayStart.add(Duration(...))`.
-4. **Адаптивність вузьких екранів:** у `_LocationRow` ([`BookingHeader`](lib/ui/widgets/booking_header.dart)) варто огорнути `Text(address)` у `Expanded`, щоб уникнути горизонтального overflow при вузьких екранах або збільшеному системному шрифті.
+1. **Idempotency keys on a real backend:** Silent retries are safe for idempotent reads, but `holdSlot` and `createBooking` in production should include an `Idempotency-Key` so retrying after a network timeout cannot duplicate records or cause false `409` conflicts.
+2. **Early sheet dismissal during in-flight `acquireHold`:** Closing `BookingSheet` before `holdSlot` completes can leave a hold active until its `2`-minute TTL expires; a `dispose`-aware cancellation check should release the hold as soon as the in-flight request resolves.
+3. **Hold countdown & DST safety:** Displaying the remaining hold time before `expiresAt` prevents stale submissions, and slot start/end calculation should account for daylight saving time transitions rather than relying solely on `dayStart.add(Duration(...))`.
+4. **Narrow-screen layout polish:** Wrapping `Text(address)` in `Expanded` inside `_LocationRow` ([`BookingHeader`](lib/ui/widgets/booking_header.dart)) will prevent horizontal `RenderFlex` overflow on narrow devices or larger system font scales.
