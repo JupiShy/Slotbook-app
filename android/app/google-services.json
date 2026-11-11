@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "711451136893",
+    "project_id": "slotbook-4c45e",
+    "storage_bucket": "slotbook-4c45e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:711451136893:android:9827097270477c446a3214",
+        "android_client_info": {
+          "package_name": "com.example.livecoding"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8umReQQmXJHWarC8FTDtioMDyG2YGoik"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
